@@ -1,0 +1,65 @@
+version: '3'
+services:
+  db:
+    image: mysql
+    ports:
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: root
+    healthcheck:
+      test: "/usr/bin/mysql --user=root --password=root --execute \"SHOW DATABASES;\""
+      interval: 2s
+      timeout: 2s
+      retries: 5
+    volumes:
+      - databases:/var/lib/mysql
+      - ./db/databases.sql:/docker-entrypoint-initdb.d/databases.sql
+  eureka-server:
+    build: ./huanying-restaurant-eureka-server
+    image: zinujust/eureka-server
+    ports:
+      - "8761:8761"
+  order-service:
+    build: ./huanying-restaurant-order-items
+    image: zinujust/order-items
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/huanying_order_items
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka
+    depends_on:
+      db:
+        condition: service_healthy
+  restaurant-reservation:
+    build: ./huanying-restaurant-reservation
+    image: zinujust/reservations
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/huanying_reservations
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka
+    depends_on:
+      db:
+        condition: service_healthy
+  api-gateway:
+    build: ./huanying-restaurant-api-gateway
+    image: zinujust/api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - order-service
+      - restaurant-reservation
+    environment:
+      "EUREKA_CLIENT_SERVICEURL_DEFAULTZONE": http://eureka-server:8761/eureka
+      "SPRING_PROFILES_ACTIVE": path
+      "SPRING_CLOUD_GATEWAY_ROUTES[0]_URI": http://restaurant-reservation:8081
+      "SPRING_CLOUD_GATEWAY_ROUTES[0]_ID": HuanyingReservation
+      "SPRING_CLOUD_GATEWAY_ROUTES[0]_PREDICATES[0]": Path=/reservations/**
+      "SPRING_CLOUD_GATEWAY_ROUTES[1]_URI": http://order-service:8082
+      "SPRING_CLOUD_GATEWAY_ROUTES[1]_ID": HuanyingOrders
+      "SPRING_CLOUD_GATEWAY_ROUTES[1]_PREDICATES[0]": Path=/order-items/**
+volumes:
+  databases:
